@@ -61,7 +61,7 @@ This simulation models a simple economy where multiple agents interact by buying
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/yourusername/agent-based-economic-simulation.git
+   git clone https://github.com/CorneDups/Economic-Emergence-Sim.git
    ```
 2. **Navigate to the Directory**
 
