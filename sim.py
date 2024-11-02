@@ -1,26 +1,88 @@
 # Import necessary libraries
 import random
+from collections import deque
 
-# Define the Agent class
+# Define the Agent class with enhanced decision-making
 class Agent:
     def __init__(self, agent_id, wealth, inventory):
         self.agent_id = agent_id
-        self.wealth = wealth      # Money the agent has
-        self.inventory = inventory  # Quantity of the commodity the agent has
+        self.wealth = wealth
+        self.inventory = inventory
 
-    def decide_action(self, market_price):
+    def calculate_reward(self, action, market_price, expected_price_change):
         """
-        Agents make a simple decision:
-        - If they have money, they attempt to buy.
-        - If they have inventory, they attempt to sell.
-        - Otherwise, they hold.
+        Calculate the immediate reward for a given action.
         """
-        if self.wealth >= market_price:
-            return 'buy'
-        elif self.inventory > 0:
-            return 'sell'
+        if action == 'buy':
+            if self.wealth >= market_price:
+                # Potential gain is the expected increase in price
+                potential_gain = expected_price_change
+                return potential_gain
+            else:
+                return float('-inf')  # Cannot afford to buy
+        elif action == 'sell':
+            if self.inventory > 0:
+                # Potential gain is the expected decrease in price
+                potential_gain = -expected_price_change
+                return potential_gain
+            else:
+                return float('-inf')  # Nothing to sell
+        elif action == 'hold':
+            # No immediate reward or cost
+            return 0
         else:
-            return 'hold'
+            return 0
+
+    def expected_price_change(self, price_history, demand_history, supply_history):
+        """
+        Agents predict future price changes based on historical data.
+        For simplicity, we'll use a linear regression on recent prices.
+        """
+        # Ensure there is enough history
+        if len(price_history) < 2:
+            return 0  # No expectation if insufficient data
+
+        # Calculate average price change
+        recent_price_changes = [price_history[i+1] - price_history[i] for i in range(len(price_history)-1)]
+        avg_price_change = sum(recent_price_changes) / len(recent_price_changes)
+
+        # Consider recent demand and supply changes
+        recent_demand_changes = [demand_history[i+1] - demand_history[i] for i in range(len(demand_history)-1)]
+        avg_demand_change = sum(recent_demand_changes) / len(recent_demand_changes)
+
+        recent_supply_changes = [supply_history[i+1] - supply_history[i] for i in range(len(supply_history)-1)]
+        avg_supply_change = sum(recent_supply_changes) / len(recent_supply_changes)
+
+        # Simple model: price expected to increase if demand is rising or supply is falling
+        expected_price_change = avg_price_change + 0.5 * (avg_demand_change - avg_supply_change)
+
+        return expected_price_change
+
+    def decide_action(self, market_price, price_history, demand_history, supply_history):
+        """
+        Agents evaluate possible actions and choose the one with the highest expected immediate reward.
+        """
+        actions = ['buy', 'sell', 'hold']
+        action_rewards = {}
+
+        # Calculate expected price change
+        expected_change = self.expected_price_change(price_history, demand_history, supply_history)
+
+        for action in actions:
+            reward = self.calculate_reward(action, market_price, expected_change)
+            action_rewards[action] = reward
+
+        # Filter out actions with negative expected rewards
+        feasible_actions = {action: reward for action, reward in action_rewards.items() if reward >= 0}
+
+        if feasible_actions:
+            # Choose the action with the highest reward
+            best_action = max(feasible_actions, key=feasible_actions.get)
+        else:
+            # If all rewards are negative, choose 'hold'
+            best_action = 'hold'
+
+        return best_action
 
     def buy(self, market_price):
         self.wealth -= market_price
@@ -41,6 +103,16 @@ class MarketEnvironment:
         self.total_demand = 0
         self.total_supply = 0
 
+        # Market history
+        self.price_history = deque(maxlen=5)
+        self.demand_history = deque(maxlen=5)
+        self.supply_history = deque(maxlen=5)
+
+        # Initialize history with initial values
+        self.price_history.append(self.price)
+        self.demand_history.append(0)
+        self.supply_history.append(0)
+
     def add_agent(self, agent):
         self.agents.append(agent)
 
@@ -57,14 +129,21 @@ class MarketEnvironment:
 
         # Agents decide their actions
         for agent in self.agents:
-            action = agent.decide_action(self.price)
+            action = agent.decide_action(
+                self.price,
+                list(self.price_history),
+                list(self.demand_history),
+                list(self.supply_history)
+            )
             if action == 'buy':
-                buyers.append(agent)
-                self.total_demand += 1
+                if agent.wealth >= self.price:
+                    buyers.append(agent)
+                    self.total_demand += 1
             elif action == 'sell':
-                sellers.append(agent)
-                self.total_supply += 1
-            # No action for 'hold'
+                if agent.inventory > 0:
+                    sellers.append(agent)
+                    self.total_supply += 1
+            # 'hold' action does nothing
 
         # Process transactions
         num_transactions = min(len(buyers), len(sellers))
@@ -86,6 +165,11 @@ class MarketEnvironment:
         # Ensure price doesn't go negative
         if self.price < 1:
             self.price = 1
+
+        # Update market history
+        self.price_history.append(self.price)
+        self.demand_history.append(self.total_demand)
+        self.supply_history.append(self.total_supply)
 
     def __str__(self):
         return f"Market Price: {self.price}, Total Demand: {self.total_demand}, Total Supply: {self.total_supply}"
