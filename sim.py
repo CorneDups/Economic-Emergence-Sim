@@ -4,7 +4,7 @@ import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt  # Import matplotlib for plotting
 
-random.seed(2) # Set random seed for reproducibility
+random.seed(2)  # Set random seed for reproducibility
 
 class Agent:
     def __init__(self, agent_id, wealth, inventory, action_space, state_space):
@@ -53,24 +53,30 @@ class Agent:
         new_q = current_q + self.alpha * (reward + self.gamma * max_next_q - current_q)
         self.q_table[(state, action)] = new_q
 
-    def perform_action(self, action, market_price):
-        if action == 'buy' and self.wealth >= market_price:
-            self.wealth -= market_price
+    def perform_action(self, action, market_price, tax_rate, market):
+        tax = market_price * tax_rate
+        if action == 'buy' and self.wealth >= (market_price + tax):
+            self.wealth -= (market_price + tax)
             self.inventory += 1
+            market.government_funds += tax  # Collect tax
         elif action == 'sell' and self.inventory > 0:
-            self.wealth += market_price
+            self.wealth += (market_price - tax)
             self.inventory -= 1
+            market.government_funds += tax  # Collect tax
         # 'hold' action does nothing
 
     def __str__(self):
-        return f"Agent {self.agent_id}: Wealth = {self.wealth}, Inventory = {self.inventory}"
+        return f"Agent {self.agent_id}: Wealth = {self.wealth:.2f}, Inventory = {self.inventory}"
 
 class MarketEnvironment:
-    def __init__(self, initial_price):
+    def __init__(self, initial_price, tax_rate=0.05, redistribution_policy='equal'):
         self.price = initial_price
+        self.tax_rate = tax_rate  # Tax rate of 5%
+        self.redistribution_policy = redistribution_policy  # 'equal', 'need-based', 'wealth-based'
         self.agents = []
         self.total_demand = 0
         self.total_supply = 0
+        self.government_funds = 0  # Collected tax funds
 
         # Market history
         self.price_history = deque(maxlen=5)
@@ -95,9 +101,6 @@ class MarketEnvironment:
         self.total_demand = 0
         self.total_supply = 0
 
-        # Keep track of state-action-reward-next_state for each agent
-        agent_experiences = []
-
         # Agents observe the state and select actions
         price_trend = self.get_price_trend()
         current_price = self.price
@@ -116,7 +119,7 @@ class MarketEnvironment:
         sellers = []
         for agent in self.agents:
             action = agent_actions[agent.agent_id]
-            if action == 'buy' and agent.wealth >= current_price:
+            if action == 'buy' and agent.wealth >= (current_price + current_price * self.tax_rate):
                 buyers.append(agent)
                 self.total_demand += 1
             elif action == 'sell' and agent.inventory > 0:
@@ -131,9 +134,9 @@ class MarketEnvironment:
         for i in range(num_transactions):
             buyer = buyers[i]
             seller = sellers[i]
-            # Execute transaction
-            buyer.perform_action('buy', current_price)
-            seller.perform_action('sell', current_price)
+            # Execute transaction with tax
+            buyer.perform_action('buy', current_price, self.tax_rate, self)
+            seller.perform_action('sell', current_price, self.tax_rate, self)
 
         # Update market price based on supply and demand
         if self.total_demand > self.total_supply:
@@ -162,22 +165,88 @@ class MarketEnvironment:
             agent.update_q_value(state, action, reward, next_state)
 
     def calculate_reward(self, agent, action, current_price, new_price):
+        tax = current_price * self.tax_rate
         if action == 'buy':
-            # Reward is the change in price (future price - purchase price)
-            reward = new_price - current_price
+            # Reward is the net change in wealth after considering tax
+            reward = (new_price - current_price) - tax
         elif action == 'sell':
-            # Reward is the sale price minus future price
-            reward = current_price - new_price
+            # Reward is the net gain from selling after tax
+            reward = (current_price - new_price) - tax
         else:
-            # 'hold' action reward could be zero or based on opportunity cost
+            # 'hold' action reward
             reward = 0
         return reward
+
+    def redistribute_taxes(self):
+        if self.government_funds > 0:
+            if self.redistribution_policy == 'equal':
+                # Equal redistribution
+                equal_share = self.government_funds / len(self.agents)
+                for agent in self.agents:
+                    agent.wealth += equal_share
+                print(f"Government redistributed {self.government_funds:.2f} equally among agents.")
+
+            elif self.redistribution_policy == 'need-based':
+                # Need-based redistribution (less wealthy agents receive more)
+                epsilon = 1e-6  # Small constant to prevent division by zero
+                # Calculate need for each agent
+                needs = {}
+                total_need = 0
+                for agent in self.agents:
+                    need = 1 / (agent.wealth + epsilon)
+                    needs[agent.agent_id] = need
+                    total_need += need
+                # Distribute funds based on need
+                for agent in self.agents:
+                    share = (needs[agent.agent_id] / total_need) * self.government_funds
+                    agent.wealth += share
+                print(f"Government redistributed {self.government_funds:.2f} based on agents' needs.")
+
+            elif self.redistribution_policy == 'wealth-based':
+                # Wealth-based redistribution (wealthier agents receive more)
+                # Calculate wealth proportion for each agent
+                total_wealth = sum(agent.wealth for agent in self.agents)
+                if total_wealth == 0:
+                    equal_share = self.government_funds / len(self.agents)
+                    for agent in self.agents:
+                        agent.wealth += equal_share
+                else:
+                    for agent in self.agents:
+                        share = (agent.wealth / total_wealth) * self.government_funds
+                        agent.wealth += share
+                print(f"Government redistributed {self.government_funds:.2f} based on agents' wealth.")
+
+            else:
+                # Default to equal redistribution if policy is unrecognized
+                equal_share = self.government_funds / len(self.agents)
+                for agent in self.agents:
+                    agent.wealth += equal_share
+                print(f"Government redistributed {self.government_funds:.2f} equally among agents.")
+
+            self.government_funds = 0  # Reset government funds
+
+        if self.government_funds > 0:
+            epsilon = 1e-6  # Small constant to prevent division by zero
+            # Calculate need for each agent
+            needs = {}
+            total_need = 0
+            for agent in self.agents:
+                need = 1 / (agent.wealth + epsilon)
+                needs[agent.agent_id] = need
+                total_need += need
+            # Distribute funds based on need
+            for agent in self.agents:
+                share = (needs[agent.agent_id] / total_need) * self.government_funds
+                agent.wealth += share
+            print(f"Government redistributed {self.government_funds:.2f} based on agents' needs. At time step {t}")
+            self.government_funds = 0  # Reset government funds
 
     def __str__(self):
         return f"Market Price: {self.price}, Total Demand: {self.total_demand}, Total Supply: {self.total_supply}"
 
-# Initialize the market environment
-market = MarketEnvironment(initial_price=10)
+# Initialize the market environment with tax and selected redistribution policy
+market = MarketEnvironment(initial_price=10, tax_rate=0.05, redistribution_policy='wealth-based')  # Options: 'equal', 'need-based', 'wealth-based'
+
 initial_market_price = market.price
 
 # Define action space and state space (for simplicity, state space is not explicitly defined)
@@ -205,7 +274,7 @@ for i in range(num_agents):
 # Initialize data structures to store agents' wealth and inventory over time
 agent_wealth_history = {agent.agent_id: [] for agent in agents}
 agent_inventory_history = {agent.agent_id: [] for agent in agents}
-time_steps = 10000
+time_steps = 10001  # Increased time steps for learning
 
 # Initialize lists to store market data over time
 market_prices = []
@@ -215,33 +284,35 @@ total_supplies = []
 # Run the simulation
 for t in range(time_steps):
     market.update_market()
-    
+
+    # Redistribute taxes every 1000 time steps
+    if t % 1000 == 0 and t != 0:
+        market.redistribute_taxes()
+
     # Record market data
     market_prices.append(market.price)
     total_demands.append(market.total_demand)
     total_supplies.append(market.total_supply)
-    
+
     # Record agents' wealth and inventory
     for agent in agents:
         agent_wealth_history[agent.agent_id].append(agent.wealth)
         agent_inventory_history[agent.agent_id].append(agent.inventory)
 
-
 # After the simulation, output the starting and ending values
 print("\nStarting and Ending Values:")
 print("Agent ID | Initial Wealth | Final Wealth | Initial Inventory | Final Inventory")
 for agent in agents:
-    print(f"{agent.agent_id:^8} | {initial_wealth[agent.agent_id]:^14} | {agent.wealth:^12} | {initial_inventory[agent.agent_id]:^17} | {agent.inventory:^15}")
+    print(f"{agent.agent_id:^8} | {initial_wealth[agent.agent_id]:^14} | {agent.wealth:^12.2f} | {initial_inventory[agent.agent_id]:^17} | {agent.inventory:^15}")
 
 print(f"\nMarket Price Start: {initial_market_price}")
 print(f"Market Price End: {market.price}")
-
 
 # Visualization of Wealth Over Time
 plt.figure(figsize=(12, 6))
 for agent_id, wealth_history in agent_wealth_history.items():
     plt.plot(range(time_steps), wealth_history, label=f'Agent {agent_id}')
-plt.title('Agents\' Wealth Over Time')
+plt.title('Agents\' Wealth Over Time with Transaction Tax and Redistribution')
 plt.xlabel('Time Steps')
 plt.ylabel('Wealth')
 plt.legend()
@@ -252,7 +323,7 @@ plt.show()
 plt.figure(figsize=(12, 6))
 for agent_id, inventory_history in agent_inventory_history.items():
     plt.plot(range(time_steps), inventory_history, label=f'Agent {agent_id}')
-plt.title('Agents\' Inventory Over Time')
+plt.title('Agents\' Inventory Over Time with Transaction Tax and Redistribution')
 plt.xlabel('Time Steps')
 plt.ylabel('Inventory')
 plt.legend()
@@ -264,10 +335,9 @@ plt.figure(figsize=(12, 6))
 plt.plot(range(time_steps), market_prices, label='Market Price', color='blue')
 plt.plot(range(time_steps), total_demands, label='Total Demand', color='green')
 plt.plot(range(time_steps), total_supplies, label='Total Supply', color='red')
-plt.title('Market Price, Demand, and Supply Over Time')
+plt.title('Market Price, Demand, and Supply Over Time with Transaction Tax and Redistribution')
 plt.xlabel('Time Steps')
 plt.ylabel('Values')
 plt.legend()
 plt.grid(True)
 plt.show()
-
