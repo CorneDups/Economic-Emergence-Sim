@@ -260,7 +260,7 @@ initial_wealth = {}
 initial_inventory = {}
 
 # Create agents
-num_agents = 100  # Adjusted to 9 agents as per your request
+num_agents = 50  # Adjusted to 9 agents as per your request
 agents = []
 for i in range(num_agents):
     # Assign random wealth and inventory to agents
@@ -277,7 +277,7 @@ for i in range(num_agents):
 # Initialize data structures to store agents' wealth and inventory over time
 agent_wealth_history = {agent.agent_id: [] for agent in agents}
 agent_inventory_history = {agent.agent_id: [] for agent in agents}
-time_steps = 3001  # Increased time steps for learning
+time_steps = 1100  # Increased time steps for learning
 
 # Initialize lists to store market data over time
 market_prices = []

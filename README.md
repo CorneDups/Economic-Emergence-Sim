@@ -66,7 +66,7 @@ This simulation models a simple economy where multiple agents interact by buying
 2. **Navigate to the Directory**
 
    ```bash
-   cd agent-based-economic-simulation
+   cd Economic-Emergence-Sim
    ```
 3. **Install Required Libraries**
 
@@ -88,10 +88,8 @@ This simulation models a simple economy where multiple agents interact by buying
 2. **Run the Simulation Script**
 
    ```bash
-   python simulation.py
+   python sim.py
    ```
-
-   Replace `simulation.py` with the name of the Python file containing the simulation code.
 3. **View Outputs**
 
    - The script will print the starting and ending values of each agent's wealth and inventory.
