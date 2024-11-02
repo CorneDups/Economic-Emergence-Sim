@@ -1,18 +1,16 @@
 # Import necessary libraries
 import random
-import numpy as np
 from collections import deque
 import matplotlib.pyplot as plt  # Import matplotlib for plotting
 
-random.seed(2)  # Set random seed for reproducibility
+random.seed(1)  # Set random seed for reproducibility
 
 class Agent:
-    def __init__(self, agent_id, wealth, inventory, action_space, state_space):
+    def __init__(self, agent_id, wealth, inventory, action_space):
         self.agent_id = agent_id
         self.wealth = wealth
         self.inventory = inventory
         self.action_space = action_space  # ['buy', 'sell', 'hold']
-        self.state_space = state_space
         self.epsilon = 0.1  # Exploration rate
         self.alpha = 0.5    # Learning rate
         self.gamma = 0.9    # Discount factor
@@ -71,7 +69,7 @@ class Agent:
 class MarketEnvironment:
     def __init__(self, initial_price, tax_rate=0.05, redistribution_policy='equal'):
         self.price = initial_price
-        self.tax_rate = tax_rate  # Tax rate of 5%
+        self.tax_rate = tax_rate  # Initial tax rate
         self.redistribution_policy = redistribution_policy  # 'equal', 'need-based', 'wealth-based'
         self.agents = []
         self.total_demand = 0
@@ -225,31 +223,36 @@ class MarketEnvironment:
 
             self.government_funds = 0  # Reset government funds
 
-        if self.government_funds > 0:
-            epsilon = 1e-6  # Small constant to prevent division by zero
-            # Calculate need for each agent
-            needs = {}
-            total_need = 0
-            for agent in self.agents:
-                need = 1 / (agent.wealth + epsilon)
-                needs[agent.agent_id] = need
-                total_need += need
-            # Distribute funds based on need
-            for agent in self.agents:
-                share = (needs[agent.agent_id] / total_need) * self.government_funds
-                agent.wealth += share
-            print(f"Government redistributed {self.government_funds:.2f} based on agents' needs. At time step {t}")
-            self.government_funds = 0  # Reset government funds
+    def calculate_gini_coefficient(self):
+        wealths = [agent.wealth for agent in self.agents]
+        n = len(wealths)
+        if n == 0:
+            return 0
+        mean_wealth = sum(wealths) / n
+        if mean_wealth == 0:
+            return 0
+        numerator = sum([abs(wi - wj) for wi in wealths for wj in wealths])
+        gini = numerator / (2 * n**2 * mean_wealth)
+        return gini
+
+    def adjust_tax_rate(self):
+        gini = self.calculate_gini_coefficient()
+        # Define minimum and maximum tax rates
+        min_tax = 0.01
+        max_tax = 0.20
+        # Map Gini coefficient to tax rate linearly
+        self.tax_rate = min_tax + (max_tax - min_tax) * gini
+        print(f"Adjusted tax rate to {self.tax_rate:.2f} based on Gini coefficient {gini:.2f}. At time step {t}.")
 
     def __str__(self):
-        return f"Market Price: {self.price}, Total Demand: {self.total_demand}, Total Supply: {self.total_supply}"
+        return f"Market Price: {self.price}, Total Demand: {self.total_demand}, Total Supply: {self.total_supply}. At time step {t}."
 
-# Initialize the market environment with tax and selected redistribution policy
-market = MarketEnvironment(initial_price=10, tax_rate=0.05, redistribution_policy='wealth-based')  # Options: 'equal', 'need-based', 'wealth-based'
+# Initialize the market environment with dynamic tax policy
+market = MarketEnvironment(initial_price=10, tax_rate=0.05, redistribution_policy='need-based')
 
 initial_market_price = market.price
 
-# Define action space and state space (for simplicity, state space is not explicitly defined)
+# Define action space (for simplicity, state space is not explicitly defined)
 action_space = ['buy', 'sell', 'hold']
 
 # Initialize data structures to store agents' initial wealth and inventory
@@ -257,13 +260,13 @@ initial_wealth = {}
 initial_inventory = {}
 
 # Create agents
-num_agents = 9  # Adjusted to 9 agents as per your request
+num_agents = 100  # Adjusted to 9 agents as per your request
 agents = []
 for i in range(num_agents):
     # Assign random wealth and inventory to agents
     wealth = random.randint(50, 100)  # Increased wealth for longer simulations
     inventory = random.randint(5, 15)
-    agent = Agent(agent_id=i, wealth=wealth, inventory=inventory, action_space=action_space, state_space=None)
+    agent = Agent(agent_id=i, wealth=wealth, inventory=inventory, action_space=action_space)
     market.add_agent(agent)
     agents.append(agent)
 
@@ -274,16 +277,26 @@ for i in range(num_agents):
 # Initialize data structures to store agents' wealth and inventory over time
 agent_wealth_history = {agent.agent_id: [] for agent in agents}
 agent_inventory_history = {agent.agent_id: [] for agent in agents}
-time_steps = 10001  # Increased time steps for learning
+time_steps = 3001  # Increased time steps for learning
 
 # Initialize lists to store market data over time
 market_prices = []
 total_demands = []
 total_supplies = []
+tax_rates = []  # To record tax rates over time
+gini_coefficients = []  # To record Gini coefficients over time
 
 # Run the simulation
 for t in range(time_steps):
     market.update_market()
+
+    # Adjust tax rate every 500 time steps
+    if t % 500 == 0 and t != 0:
+        market.adjust_tax_rate()
+
+    # Record current tax rate and Gini coefficient
+    tax_rates.append(market.tax_rate)
+    gini_coefficients.append(market.calculate_gini_coefficient())
 
     # Redistribute taxes every 1000 time steps
     if t % 1000 == 0 and t != 0:
@@ -312,9 +325,29 @@ print(f"Market Price End: {market.price}")
 plt.figure(figsize=(12, 6))
 for agent_id, wealth_history in agent_wealth_history.items():
     plt.plot(range(time_steps), wealth_history, label=f'Agent {agent_id}')
-plt.title('Agents\' Wealth Over Time with Transaction Tax and Redistribution')
+plt.title('Agents\' Wealth Over Time with Dynamic Tax Policy')
 plt.xlabel('Time Steps')
 plt.ylabel('Wealth')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Visualization of Tax Rate Over Time
+plt.figure(figsize=(12, 6))
+plt.plot(range(len(tax_rates)), tax_rates, label='Tax Rate', color='purple')
+plt.title('Tax Rate Over Time')
+plt.xlabel('Time Steps (every step after 500)')
+plt.ylabel('Tax Rate')
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Visualization of Gini Coefficient Over Time
+plt.figure(figsize=(12, 6))
+plt.plot(range(len(gini_coefficients)), gini_coefficients, label='Gini Coefficient', color='orange')
+plt.title('Gini Coefficient Over Time')
+plt.xlabel('Time Steps (every step after 500)')
+plt.ylabel('Gini Coefficient')
 plt.legend()
 plt.grid(True)
 plt.show()
@@ -323,7 +356,7 @@ plt.show()
 plt.figure(figsize=(12, 6))
 for agent_id, inventory_history in agent_inventory_history.items():
     plt.plot(range(time_steps), inventory_history, label=f'Agent {agent_id}')
-plt.title('Agents\' Inventory Over Time with Transaction Tax and Redistribution')
+plt.title('Agents\' Inventory Over Time with Dynamic Tax Policy')
 plt.xlabel('Time Steps')
 plt.ylabel('Inventory')
 plt.legend()
@@ -335,7 +368,7 @@ plt.figure(figsize=(12, 6))
 plt.plot(range(time_steps), market_prices, label='Market Price', color='blue')
 plt.plot(range(time_steps), total_demands, label='Total Demand', color='green')
 plt.plot(range(time_steps), total_supplies, label='Total Supply', color='red')
-plt.title('Market Price, Demand, and Supply Over Time with Transaction Tax and Redistribution')
+plt.title('Market Price, Demand, and Supply Over Time with Dynamic Tax Policy')
 plt.xlabel('Time Steps')
 plt.ylabel('Values')
 plt.legend()
